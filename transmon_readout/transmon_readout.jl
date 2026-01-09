@@ -1,4 +1,4 @@
-using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit
+using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit, CairoMakie
 
 # --- Projection function --- (UNUSED)
 function operator_nlevel_trunc(nlevels, op, states)
@@ -8,59 +8,35 @@ end
 
 
 
-# --- Parameters ---
-ECT = 0.1
-ECR = 0.5
-ECoup = 0.005
-EJ = 50
-EL = 0.5
-
-
-
 # --- Hamiltonian function ---
 function hamiltonian_tr(ECT, ECR, ECoup, EJ, EL; transmon_trunc=41, resonator_trunc=40)
     
 
 
     # ===== Transmon Hamiltonian =====
-    charge = spzeros(Float64, transmon_trunc, transmon_trunc)
-    cos_phi = spzeros(Float64, transmon_trunc, transmon_trunc)
-
-    for i in 1:(transmon_trunc - 1)
-        cos_phi[i, i + 1] = 1
-        cos_phi[i + 1, i] = 1
-        charge[i, i] = i - (transmon_trunc + 1) ÷ 2
+    phizpf_t = ((2 * ECT) / EJ)^(1/4)
+    omega_p = sqrt(8*ECT*EJ)
+    destruction_t = spzeros(Float64, transmon_trunc, transmon_trunc)
+    for n in 1:(transmon_trunc - 1)
+        destruction_t[n, n + 1] = sqrt(n)
     end
+    creation_t = destruction_t'
 
-    charge[end, end] = transmon_trunc ÷ 2  
-
-    HT = 4 * ECT * charge * charge - EJ / 2 * cos_phi
-
-    # Evecs = eigen(Matrix(HT)).vectors 
-    # HT_ndim = operator_nlevel_trunc(n_levels_transmon, Matrix(HT), Evecs)
-    # charge_ndim = operator_nlevel_trunc(n_levels_transmon, Matrix(charge), Evecs)
-
+    HT = omega_p * creation_t * destruction_t - ECT / 2 * creation_t * creation_t * destruction_t * destruction_t
 
 
     # ===== Resonator Hamiltonian =====
-    destruction = spzeros(Float64, resonator_trunc, resonator_trunc)
-
+    destruction_r = spzeros(Float64, resonator_trunc, resonator_trunc)
     for n in 1:(resonator_trunc - 1)
-        destruction[n, n + 1] = sqrt(n)
+        destruction_r[n, n + 1] = sqrt(n)
     end
-
-    creation = destruction'
-
-    HR = sqrt(8 * ECR * EL) * (creation * destruction + spdiagm(0 => ones(resonator_trunc)) * 0.5)
-
+    creation_r = destruction_r'
+    HR = sqrt(8 * ECR * EL) * (creation_r * destruction_r + spdiagm(0 => ones(resonator_trunc)) * 0.5)
 
 
     # ===== Coupling Hamiltonian =====
-    phizpf = ((2 * ECR) / EL)^(1/4)
-    n_R = (destruction - creation) / (2im * phizpf)
-
-    HC = -4 * ECoup * kron(charge, n_R)
-
+    phizpf_r = ((2 * ECR) / EL)^(1/4)
+    HC = ECoup / phizpf_r / phizpf_t * kron(destruction_t - creation_t, destruction_r - creation_r)
 
 
     # ===== Final Hamiltonian =====
@@ -85,7 +61,7 @@ function states_dmrg(ECT, ECR, ECoup, EJ, EL; nb_states = 4, transmon_trunc=41, 
     # ===== Transmon Hamiltonian =====
     omega_p = sqrt(8*ECT*EJ)
     os += omega_p, "N", 1
-    os += -ECT/2, "a * a * adag * adag", 1
+    os += -ECT/2, "adag * adag * a * a", 1
 
     # ===== Resonator Hamiltonian =====
     omega_q = sqrt(8*ECR*EL)
@@ -93,20 +69,21 @@ function states_dmrg(ECT, ECR, ECoup, EJ, EL; nb_states = 4, transmon_trunc=41, 
     os += 0.5, "I", 2
 
     # ===== Coupling Hamiltonian =====
-    os += -4 * ECoup, "N", 1, "N", 2
+    phi_zpf_t = ((2 * ECT) / EJ)^(1/4)
+    phi_zpf_r = ((2 * ECR) / EL)^(1/4)
+    os += ECoup / phi_zpf_r / phi_zpf_t, "A - Adag", 1, "A - Adag", 2
     
-
 
 # ---- Computing the ground state ----
 
     H =  MPO(os, sites)
 
     # ==== DMRG Parameters ====
-    nsweeps = 30
+    nsweeps = 70
     maxdim = [10,10,10,20,20,40,80,100,200,200]
     cutoff = [1E-8]
-    noise = [1E-6]
-    weight = 20
+    noise = [1E-7]
+    weight = 40
 
     # ==== DMRG Computations ====
     psi0_init = random_mps(sites;linkdims=20)
@@ -126,20 +103,82 @@ end
 
 
 
-# ====== Comparaison ======
-let
-    T = siteind("Boson", 1, dim = 41) #Transmon
-    R = siteind("Boson", 2, dim = 40) #Resonator
-    sites = [T, R]
+# --- Parameters ---
+ECT = 0.1
+ECR = 0.5
+ECoup = 0.005
+EL = 0.5
+nb_states = 6
 
-    H = hamiltonian_tr(ECT, ECR, ECoup, EJ, EL)
-    Energies_krylov, _, _ = eigsolve(H, 6, :SR)
-    Energies_krylov .-= Energies_krylov[1]
 
-    Energies_dmrg = states_dmrg(ECT, ECR, ECoup, EJ, EL; nb_states=6)
-    Energies_dmrg .-= Energies_dmrg[1]
 
-    for i in 1:6
-        println("E$(i-1): Krylov: $(Energies_krylov[i]) ; DMRG: $(Energies_dmrg[i])")
+# # ----- Comparaison -----
+# let
+#     H = hamiltonian_tr(ECT, ECR, ECoup, EJ, EL)
+#     Energies_krylov, _, _ = eigsolve(H, 6, :SR)
+#     Energies_krylov .-= Energies_krylov[1]
+
+#     Energies_dmrg = states_dmrg(ECT, ECR, ECoup, EJ, EL; nb_states=6)
+#     Energies_dmrg .-= Energies_dmrg[1]
+
+#     for i in 1:6
+#         println("E$(i-1): Krylov: $(Energies_krylov[i]) ; DMRG: $(Energies_dmrg[i])")
+#     end
+# end
+
+
+
+# --- Sweep over EJ to vary omega_p ---
+EJ_vals = range(20, 100, length=10) # 10 points for a smooth curve
+omega_ps = sqrt.(8 * ECT .* EJ_vals)
+
+krylov_data = [Float64[] for _ in 1:nb_states]
+dmrg_data = [Float64[] for _ in 1:nb_states]
+
+
+# ---- Computiing the energies ----
+for ej in EJ_vals
+    # Krylov Calculation
+    H_k = hamiltonian_tr(ECT, ECR, ECoup, ej, EL)
+    vals_k, _, _ = eigsolve(H_k, nb_states, :SR)
+    vals_k .-= vals_k[1] 
+    
+    # DMRG Calculation
+    vals_d = states_dmrg(ECT, ECR, ECoup, ej, EL; nb_states=nb_states)
+    vals_d .-= vals_d[1] 
+
+    for i in 1:nb_states
+        push!(krylov_data[i], vals_k[i])
+        push!(dmrg_data[i], vals_d[i])
     end
+    print(".")
 end
+println("\nCalculation complete.")
+
+
+
+# ---- Plotting with CairoMakie ------
+fig = Figure(resolution = (800, 600), font = "DejaVu Sans")
+ax = Axis(fig[1, 1], 
+    xlabel = L"\omega_p = \sqrt{8 E_{CT} E_J}", 
+    ylabel = L"E_n - E_0",
+    title = "Transmon-Resonator Energy Levels")
+
+colors = Makie.wong_colors()
+
+for i in 1:nb_states
+    lines!(ax, omega_ps, krylov_data[i], 
+        linestyle = :dash, 
+        color = (colors[i], 0.5), 
+        linewidth = 2,
+        label = i == 1 ? "Krylov" : nothing)
+    
+    lines!(ax, omega_ps, dmrg_data[i], 
+        linestyle = :solid, 
+        color = (colors[i], 0.5), 
+        linewidth = 2,
+        label = i == 1 ? "DMRG" : nothing)
+end
+
+axislegend(ax, position = :lt)
+save("energies_vs_omega_p.png", fig)
