@@ -87,12 +87,12 @@ function states_dmrg(ECT, ECR, ECoup, EJ, EL; nb_states = 4, transmon_trunc=41, 
 
     # ==== DMRG Computations ====
     psi0_init = random_mps(sites;linkdims=20)
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff)
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,outputlevel=0)
     Psi = [psi0]
     Energies = [E0]
     for i in 1:(nb_states-1)
         psi_init = random_mps(sites;linkdims=20)
-        energy,psi = dmrg(H,Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight)
+        energy,psi = dmrg(H,Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,outputlevel=0)
         push!(Psi, psi)
         push!(Energies, energy)
     end 
@@ -110,27 +110,9 @@ ECoup = 0.005
 EL = 0.5
 nb_states = 6
 
-
-
-# # ----- Comparaison -----
-# let
-#     H = hamiltonian_tr(ECT, ECR, ECoup, EJ, EL)
-#     Energies_krylov, _, _ = eigsolve(H, 6, :SR)
-#     Energies_krylov .-= Energies_krylov[1]
-
-#     Energies_dmrg = states_dmrg(ECT, ECR, ECoup, EJ, EL; nb_states=6)
-#     Energies_dmrg .-= Energies_dmrg[1]
-
-#     for i in 1:6
-#         println("E$(i-1): Krylov: $(Energies_krylov[i]) ; DMRG: $(Energies_dmrg[i])")
-#     end
-# end
-
-
-
 # --- Sweep over EJ to vary omega_p ---
-EJ_vals = range(20, 100, length=10) # 10 points for a smooth curve
-omega_ps = sqrt.(8 * ECT .* EJ_vals)
+EJ_vals = range(20, 100, length=20)
+Omega_p = sqrt.(8 * ECT .* EJ_vals)
 
 krylov_data = [Float64[] for _ in 1:nb_states]
 dmrg_data = [Float64[] for _ in 1:nb_states]
@@ -153,27 +135,26 @@ for ej in EJ_vals
     end
     print(".")
 end
-println("\nCalculation complete.")
 
 
 
 # ---- Plotting with CairoMakie ------
 fig = Figure(resolution = (800, 600), font = "DejaVu Sans")
 ax = Axis(fig[1, 1], 
-    xlabel = L"\omega_p = \sqrt{8 E_{CT} E_J}", 
-    ylabel = L"E_n - E_0",
+    xlabel = L"\omega_p(E_J) = \sqrt{8 E_{C_T} E_J} [GHz]", 
+    ylabel = L"E_n - E_0 [GHz]",
     title = "Transmon-Resonator Energy Levels")
 
 colors = Makie.wong_colors()
 
 for i in 1:nb_states
-    lines!(ax, omega_ps, krylov_data[i], 
+    lines!(ax, Omega_p, krylov_data[i], 
         linestyle = :dash, 
         color = (colors[i], 0.5), 
         linewidth = 2,
         label = i == 1 ? "Krylov" : nothing)
     
-    lines!(ax, omega_ps, dmrg_data[i], 
+    lines!(ax, Omega_p, dmrg_data[i], 
         linestyle = :solid, 
         color = (colors[i], 0.5), 
         linewidth = 2,
@@ -181,4 +162,64 @@ for i in 1:nb_states
 end
 
 axislegend(ax, position = :lt)
-save("energies_vs_omega_p.png", fig)
+save("./transmon_readout/fock_basis/energies_vs_omega_p.png", fig)
+
+
+
+
+# --- Changing Parameters ---
+EJ=30
+
+# --- Sweep over EJ to vary omega_p ---
+EL_vals = range(0.1, 5, length=20)
+Omega_r = sqrt.(8 * ECR .* EL_vals)
+
+krylov_data = [Float64[] for _ in 1:nb_states]
+dmrg_data = [Float64[] for _ in 1:nb_states]
+
+
+# ---- Computiing the energies ----
+for el in EL_vals
+    # Krylov Calculation
+    H_k = hamiltonian_tr(ECT, ECR, ECoup, EJ, el)
+    vals_k, _, _ = eigsolve(H_k, nb_states, :SR)
+    vals_k .-= vals_k[1] 
+    
+    # DMRG Calculation
+    vals_d = states_dmrg(ECT, ECR, ECoup, EJ, el; nb_states=nb_states)
+    vals_d .-= vals_d[1] 
+
+    for i in 1:nb_states
+        push!(krylov_data[i], vals_k[i])
+        push!(dmrg_data[i], vals_d[i])
+    end
+    print(".")
+end
+
+
+
+# ---- Plotting with CairoMakie ------
+fig = Figure(resolution = (800, 600), font = "DejaVu Sans")
+ax = Axis(fig[1, 1], 
+    xlabel = L"\omega_r(E_L) = \sqrt{8 E_{C_R} E_L} [GHz]", 
+    ylabel = L"E_n - E_0 [GHz]",
+    title = "Transmon-Resonator Energy Levels")
+
+colors = Makie.wong_colors()
+
+for i in 1:nb_states
+    lines!(ax, Omega_r, krylov_data[i], 
+        linestyle = :dash, 
+        color = (colors[i], 0.5), 
+        linewidth = 2,
+        label = i == 1 ? "Krylov" : nothing)
+    
+    lines!(ax, Omega_r, dmrg_data[i], 
+        linestyle = :solid, 
+        color = (colors[i], 0.5), 
+        linewidth = 2,
+        label = i == 1 ? "DMRG" : nothing)
+end
+
+axislegend(ax, position = :lt)
+save("./transmon_readout/fock_basis/energies_vs_omega_r.png", fig)
