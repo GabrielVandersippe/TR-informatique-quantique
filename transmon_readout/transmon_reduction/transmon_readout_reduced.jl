@@ -3,20 +3,20 @@ using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit, CairoMakie
 
 
 function transmon_hamiltonian(ECT,EJ,N_trunc = 3, transmon_trunc=41)
-    # ===== Define operators in the full basis =====
-    charge = ComplexF64[(i == j) ? (i - transmon_trunc÷2 - 1) : 0.0 for i in 1:transmon_trunc, j in 1:transmon_trunc]
-    cos_phi = ComplexF64[(i == j+1) || (i+1 == j) ? 0.5 : 0.0 for i in 1:transmon_trunc, j in 1:transmon_trunc]
+    # ===== Define operators in the full basis =====    
+    charge = spdiagm(0 => ComplexF64[i - transmon_trunc÷2 - 1 for i in 1:transmon_trunc])
+    cos_phi = spdiagm(1 => 0.5 * ones(ComplexF64, transmon_trunc-1), -1 => 0.5 * ones(ComplexF64, transmon_trunc-1))
 
     # ==== Full Hamiltonian ====
     H_full = 4 * ECT * charge*charge - EJ * cos_phi
 
     # ===== Diagonalize the full Hamiltonian =====
-    _, evecs = eigen(H_full)
+    _, vecs, _ = eigsolve(H_full, N_trunc, :SR) 
 
-    # ===== Keep the first N_trunc levels =====
-    U = evecs[:, 1:N_trunc]
-    H_reduced = U' * H_full * U
-    charge_reduced = U' * charge * U
+    # ===== Keep the first N_trunc levels =====     
+    U = hcat(vecs[1:N_trunc]...)
+    H_reduced = U' * Matrix(H_full) * U  #XXX : Probably not very fast to convert back and forth to Matrix
+    charge_reduced = U' * Matrix(charge) * U
     return H_reduced, charge_reduced
 
 end
@@ -148,4 +148,4 @@ for i in 1:nb_states
 end
 
 axislegend(ax, position = :lt)
-save("./transmon_readout/fock_basis/energies_vs_omega_r.png", fig)
+save("./transmon_readout/transmon_reduction/energies_vs_omega_r.png", fig)
