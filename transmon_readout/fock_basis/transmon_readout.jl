@@ -1,11 +1,5 @@
 using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit, CairoMakie
 
-# --- Projection function --- (UNUSED)
-function operator_nlevel_trunc(nlevels, op, states)
-    U = states[:, 1:nlevels]
-    return U' * op * U
-end
-
 
 
 # --- Hamiltonian function ---
