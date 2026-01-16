@@ -1,5 +1,15 @@
 using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit, CairoMakie
 
+N_trunc = 3
+
+import ITensors: state, val
+ITensors.space(::SiteType"CustomTransmon") = N_trunc
+function ITensors.state(::StateName{N}, ::SiteType"CustomTransmon", s::Index) where {N}
+    n = parse(Int, String(N))
+    st = zeros(dim(s))
+    st[n + 1] = 1.0 
+    return itensor(st, s)
+end
 
 
 function transmon_hamiltonian(ECT,EJ,N_trunc = 3, transmon_trunc=41)
@@ -28,12 +38,10 @@ ECR = 0.2
 EJ = 20.0
 EL = 15.0
 ECoup = 0.02
-N_trunc = 3
+transmon_trunc=31
 
 # ----- Deifining the custom operators -----
-transmon_trunc=41
-
-HT_reduced, charge_reduced = transmon_hamiltonian(ECT, EJ)
+HT_reduced, charge_reduced = transmon_hamiltonian(ECT, EJ, N_trunc, transmon_trunc)
 
 ITensors.space(::SiteType"CustomTransmon") = N_trunc
 ITensors.op(::OpName"charge", ::SiteType"CustomTransmon") =
@@ -43,7 +51,7 @@ ITensors.op(::OpName"H", ::SiteType"CustomTransmon") =
 
 
 
-function states_dmrg(ECR, ECoup, EL; nb_states = 4, resonator_trunc=40) #Transmon_trunc must be odd
+function states_dmrg_reduced(ECR, ECoup, EL; nb_states = 6, resonator_trunc=40) #Transmon_trunc must be odd
     
     # === Initialize the sites and the OpSum ===
     T = siteind("CustomTransmon", 1)
@@ -86,66 +94,67 @@ function states_dmrg(ECR, ECoup, EL; nb_states = 4, resonator_trunc=40) #Transmo
         push!(Energies, energy)
     end 
 
-    return Energies
+    return Energies, Psi, H
 
 
 end
 
 
+# let
+#     # --- Parameters ---
+#     nb_states = 6
 
-# --- Parameters ---
-nb_states = 6
+#     # --- Sweep over EL to vary omega_r ---
+#     EL_vals = range(0.1, 5, length=20)
+#     Omega_r = sqrt.(8 * ECR .* EL_vals)
 
-# --- Sweep over EL to vary omega_r ---
-EL_vals = range(0.1, 5, length=20)
-Omega_r = sqrt.(8 * ECR .* EL_vals)
-
-krylov_data = [Float64[] for _ in 1:nb_states]
-dmrg_data = [Float64[] for _ in 1:nb_states]
-
-
-# ---- Computiing the energies ----
-for el in EL_vals
-    # Krylov Calculation
-    H_k = hamiltonian_tr(ECT, ECR, ECoup, EJ, el)
-    vals_k, _, _ = eigsolve(H_k, nb_states, :SR)
-    vals_k .-= vals_k[1] 
-    
-    # DMRG Calculation
-    vals_d = states_dmrg(ECR, ECoup, el; nb_states=nb_states)
-    vals_d .-= vals_d[1] 
-
-    for i in 1:nb_states
-        push!(krylov_data[i], vals_k[i])
-        push!(dmrg_data[i], vals_d[i])
-    end
-    print(".")
-end
+#     krylov_data = [Float64[] for _ in 1:nb_states]
+#     dmrg_data = [Float64[] for _ in 1:nb_states]
 
 
+#     # ---- Computiing the energies ----
+#     for el in EL_vals
+#         # Krylov Calculation
+#         H_k = hamiltonian_tr(ECT, ECR, ECoup, EJ, el)
+#         vals_k, _, _ = eigsolve(H_k, nb_states, :SR)
+#         vals_k .-= vals_k[1] 
+        
+#         # DMRG Calculation
+#         vals_d = states_dmrg(ECR, ECoup, el; nb_states=nb_states)
+#         vals_d .-= vals_d[1] 
 
-# ---- Plotting with CairoMakie ------
-fig = Figure(resolution = (800, 600), font = "DejaVu Sans")
-ax = Axis(fig[1, 1], 
-    xlabel = L"\omega_r(E_L) = \sqrt{8 E_{C_R} E_L} [GHz]", 
-    ylabel = L"E_n - E_0 [GHz]",
-    title = "Transmon-Resonator Energy Levels")
+#         for i in 1:nb_states
+#             push!(krylov_data[i], vals_k[i])
+#             push!(dmrg_data[i], vals_d[i])
+#         end
+#         print(".")
+#     end
 
-colors = Makie.wong_colors()
 
-for i in 1:nb_states
-    lines!(ax, Omega_r, krylov_data[i], 
-        linestyle = :dash, 
-        color = (colors[i], 0.5), 
-        linewidth = 2,
-        label = i == 1 ? "Krylov" : nothing)
-    
-    lines!(ax, Omega_r, dmrg_data[i], 
-        linestyle = :solid, 
-        color = (colors[i], 0.5), 
-        linewidth = 2,
-        label = i == 1 ? "DMRG" : nothing)
-end
 
-axislegend(ax, position = :lt)
-save("./transmon_readout/transmon_reduction/energies_vs_omega_r.png", fig)
+#     # ---- Plotting with CairoMakie ------
+#     fig = Figure(resolution = (800, 600), font = "DejaVu Sans")
+#     ax = Axis(fig[1, 1], 
+#         xlabel = L"\omega_r(E_L) = \sqrt{8 E_{C_R} E_L} [GHz]", 
+#         ylabel = L"E_n - E_0 [GHz]",
+#         title = "Transmon-Resonator Energy Levels")
+
+#     colors = Makie.wong_colors()
+
+#     for i in 1:nb_states
+#         lines!(ax, Omega_r, krylov_data[i], 
+#             linestyle = :dash, 
+#             color = (colors[i], 0.5), 
+#             linewidth = 2,
+#             label = i == 1 ? "Krylov" : nothing)
+        
+#         lines!(ax, Omega_r, dmrg_data[i], 
+#             linestyle = :solid, 
+#             color = (colors[i], 0.5), 
+#             linewidth = 2,
+#             label = i == 1 ? "DMRG" : nothing)
+#     end
+
+#     axislegend(ax, position = :lt)
+#     save("./transmon_readout/reduction/energies_vs_omega_r.png", fig)
+# end
