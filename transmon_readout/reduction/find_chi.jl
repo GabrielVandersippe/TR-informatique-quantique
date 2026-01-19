@@ -1,16 +1,5 @@
 using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit, CairoMakie
 
-N_trunc = 3
-
-import ITensors: state, val
-ITensors.space(::SiteType"CustomTransmon") = N_trunc
-function ITensors.state(::StateName{N}, ::SiteType"CustomTransmon", s::Index) where {N}
-    n = parse(Int, String(N))
-    st = zeros(dim(s))
-    st[n + 1] = 1.0 
-    return itensor(st, s)
-end
-
 
 
 # ------ using the reduced hamiltonian -----
@@ -35,6 +24,7 @@ end
 
 
 # ----- Transmon Parameters ----
+N_trunc = 3
 ECT = 0.1
 EJ = 50.0
 transmon_trunc=31
@@ -45,23 +35,17 @@ omega_q = sqrt(8 * ECT * EJ) - ECT
 HT_reduced, charge_reduced = transmon_hamiltonian(ECT, EJ, N_trunc, transmon_trunc)
 
 
-ITensors.op(::OpName"charge", ::SiteType"CustomTransmon") =
-    charge_reduced
-ITensors.op(::OpName"H", ::SiteType"CustomTransmon") =
-    HT_reduced
-
-
 
 function find_chi_reduced(ECR, ECoup, EL; nb_states = 6, resonator_trunc=40) 
     
     # === Initialize the sites and the OpSum ===
-    T = siteind("CustomTransmon", 1)
+    T = siteind("Boson", 1, dim = N_trunc)
     R = siteind("Boson", 2, dim = resonator_trunc)
     sites = [T, R]
     os = OpSum()
 
     # ===== Transmon Hamiltonian =====
-    os += 1.0, "H", 1
+    os += 1.0, HT_reduced, 1
 
     # ===== Resonator Hamiltonian ===== 
     omega_r = sqrt(8*ECR*EL)
@@ -70,7 +54,7 @@ function find_chi_reduced(ECR, ECoup, EL; nb_states = 6, resonator_trunc=40)
 
     # ===== Coupling Hamiltonian =====
     phi_zpf_r = ((2 * ECR) / EL)^(1/4)
-    os += -4 * ECoup / (2*1im*phi_zpf_r), "charge", 1, "A - Adag", 2
+    os += -4 * ECoup / (2*1im*phi_zpf_r), charge_reduced, 1, "A - Adag", 2
     
 
 # ---- Computing the states ----
