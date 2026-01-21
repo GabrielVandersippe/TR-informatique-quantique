@@ -63,9 +63,9 @@ function states_dmrg_reduced(ECR, ECoup, EL; nb_states = 6, resonator_trunc=40) 
     os += 1.0, "H", 1
 
     # ===== Resonator Hamiltonian =====
-    omega_q = sqrt(8*ECR*EL)
-    os += omega_q, "N", 2
-    os += 0.5, "I", 2
+    omega_r = sqrt(8*ECR*EL)
+    os += omega_r, "N", 2
+    os += omega_r * 0.5, "I", 2
 
     # ===== Coupling Hamiltonian =====
     phi_zpf_r = ((2 * ECR) / EL)^(1/4)
