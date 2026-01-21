@@ -1,8 +1,6 @@
 using ITensors, ITensorMPS, LinearAlgebra, SparseArrays, KrylovKit, CairoMakie
 
 
-N_trunc = 3
-
 function transmon_hamiltonian(ECT,EJ,N_trunc = 3, transmon_trunc=41)
     # ===== Define operators in the full basis =====    
     charge = spdiagm(0 => ComplexF64[i - transmon_trunc÷2 - 1 for i in 1:transmon_trunc])
