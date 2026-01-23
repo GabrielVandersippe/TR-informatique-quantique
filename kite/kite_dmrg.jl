@@ -288,7 +288,7 @@ function create_hamiltonian(
     f_2_GHz = sqrt(8 * EC_diag[3] * EL_diag[3]) 
 
     # === Initializing static operators ===
-    N0, C0, S0,N1, C1, S1, N2, C2, S2, N_R = build_static_operators(dims, diag(EC_mat), EL_diag)
+    N0, C0, S0, N1, C1, S1, N2, C2, S2, N_R = build_static_operators(dims, diag(EC_mat), EL_diag)
 
     # === Harmonic Hamiltonians ===
 
