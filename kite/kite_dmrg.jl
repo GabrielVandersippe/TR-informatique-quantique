@@ -1,4 +1,4 @@
-using ITensors, ITensorMPS, LinearAlgebra, KrylovKit, CairoMakie, HypergeometricFunctions
+using ITensors, ITensorMPS, LinearAlgebra, HypergeometricFunctions
 
 
 DEFAULT_DIMS = (19, 32, 32, 5)
@@ -239,7 +239,6 @@ end
 
 
 
-#First approach : Constructing the operators as we go inside the OpSum
 function create_hamiltonian(
         dims,
         ECs_GHz, 
@@ -334,27 +333,57 @@ function create_hamiltonian(
 
 end
 
-function eigenstates_hamiltonian(H::MPO, n_levels::Int)
+
+
+# ============================================================
+# Computing the states
+# ============================================================
+
+
+# Observer to stop DMRG early if energy converged
+mutable struct EnergyObserver <: AbstractObserver
+    energy_tol::Float64
+    last_energy::Float64
+
+    EnergyObserver(energy_tol::Float64=0.0) = new(energy_tol, 1000.0)
+end
+
+#Overloading the checkdone! method
+function ITensorMPS.checkdone!(obs::EnergyObserver; kwargs...)
+    energy=kwargs[:energy]
+    if abs(energy - obs.last_energy) < obs.energy_tol
+        return true
+    else
+        obs.last_energy = energy
+        return false
+    end
+end
+
+
+# Computing eigenstates with DMRG
+function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
 # ==== DMRG Parameters ====
-    nsweeps = 50
-    maxdim = [10,10,10,20,20,40,40,40,100,100,200]
-    cutoff = [0.0]
+    nsweeps = 60
+    maxdim = [10,10,10,20,20,40,60]
+    cutoff = [1E-9]
     noise = [1E-7]
-    weight = 60
+    weight = 40
 
     sites = [siteinds(H)[i][2] for i in 1:4]
 
+    obs = EnergyObserver(precision)
+
     # ==== DMRG Computations ====
-    psi0_init = random_mps(sites;linkdims=10)#MPS([state(sites[1],"0"), state(sites[2],"0"), state(sites[3],"0"), state(sites[4],"0")])
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,outputlevel = 1)
+    psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,observer=obs,outputlevel = 1, eigsolve_krylovdim = 6)
     Psi = [psi0]
     Energies = [E0]
-    for i in 1:(n_levels-1)
-        psi_init = random_mps(sites;linkdims=5)
-        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,outputlevel = 1)
+    for _ in 1:(n_levels-1)
+        psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
+        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 6)
         push!(Psi, psi)
         push!(Energies, real(inner(psi',H,psi)))
     end 
-    return Energies, Psi
+    return Energies.-Energies[1], Psi
 end
