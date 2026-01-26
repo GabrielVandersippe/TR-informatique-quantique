@@ -10,6 +10,7 @@ EJ_GHz=17.501
 eps=0.05702
 ECc_GHz=0.003989
 f_r_GHz=4.337
+n_r_zpf=2.0
 
 
 # ============================================================
@@ -100,14 +101,8 @@ end
 
 
 # ============================================================
-# Matrices in charge basis #XXX Right now these are full matrices. Try later with Diagonal/ Tridiagonal for faster arithmetics
+# Matrices in charge basis #XXX Right now these are full matrices. Try later with Diagonal/ Tridiagonal for faster arithmetics ?
 # ============================================================
-
-function charge_basis_identity(d::Int)
-    @assert d % 2 == 1 "dim must be odd"
-    return diagm(ones(ComplexF64, d))
-end
-
 
 function charge_basis_charge_operator(d::Int)
     @assert d % 2 == 1 "dim must be odd"
@@ -245,7 +240,7 @@ function create_hamiltonian(
         ECJ_GHz, 
         ECc_GHz, 
         f_r_GHz,
-        nr_zpf, 
+        n_r_zpf, 
         eps,
         EL_GHz,
         EJ_GHz,
@@ -270,11 +265,11 @@ function create_hamiltonian(
         ECJ_GHz, 
         ECc_GHz, 
         f_r_GHz,
-        nr_zpf, 
+        n_r_zpf, 
         eps
     )
 
-    EL_r_GHz = 2 * f_r_GHz * nr_zpf^2
+    EL_r_GHz = 2 * f_r_GHz * n_r_zpf^2
 
     EC_diag = diag(EC_mat)
     EL_diag = [
@@ -310,17 +305,20 @@ function create_hamiltonian(
     #  N_i N_j terms 
     os += 8*EC_mat[1,2], N0, 1, N1, 2
     os += 8*EC_mat[2,3], N1, 2, N2, 3
+    #os += 8*EC_mat[1,3], N0, 1, N2, 3  
 
     # ng coupling to qubit 
-    os += EC_mat[1,1]*ng, N0, 1
-    os += EC_mat[1,2]*ng, N1, 2
+    os += -8 * EC_mat[1,1]*ng, N0, 1
+    os += -8 * EC_mat[1,2]*ng, N1, 2
+    #os += -8 * EC_mat[1,3]*ng, N2, 3
 
     # ng coupling to resonator
-    os += EC_mat[1,4]*ng, N0, 1
+    os += -8 * EC_mat[1,4]*ng, N_R, 4
 
-    # Coupling to resonator
+    # Resonator - Qubit coupling
     os += 8*EC_mat[1,4], N0, 1, N_R, 4
     os += 8*EC_mat[2,4], N1, 2, N_R, 4
+    #os += 8*EC_mat[3,4], N2, 3, N_R, 4
 
 
     # === Cosine and Sine terms ===
@@ -328,6 +326,11 @@ function create_hamiltonian(
     os += 2*EJ_GHz*sin(phi_ext/2), C0, 1, C1, 2, S2, 3
     os += -2*EJ_GHz*cos(phi_ext/2), S0, 1, S1, 2, C2, 3
     os += 2*EJ_GHz*sin(phi_ext/2), S0, 1, S1, 2, S2, 3
+
+    os += -2 * eps * EJ_GHz * cos(phi_ext/2), S0, 1, C1, 2, S2, 3
+    os += 2 * eps * EJ_GHz * cos(phi_ext/2), C0, 1, S1, 2, S2, 3
+    os += -2 * eps * EJ_GHz * sin(phi_ext/2), S0, 1, C1, 2, C2, 3
+    os += 2 * eps * EJ_GHz * sin(phi_ext/2), C0, 1, S1, 2, C2, 3
 
     return MPO(os, sites)
 
@@ -365,10 +368,10 @@ function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
 # ==== DMRG Parameters ====
     nsweeps = 60
-    maxdim = [10,10,10,20,20,40,60]
-    cutoff = [1E-9]
+    maxdim = [10,10,20,20,40,100,100,100,100, 200]
+    cutoff = [1E-14]
     noise = [1E-7]
-    weight = 40
+    weight = 60
 
     sites = [siteinds(H)[i][2] for i in 1:4]
 
@@ -376,14 +379,20 @@ function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
 
     # ==== DMRG Computations ====
     psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,observer=obs,outputlevel = 1, eigsolve_krylovdim = 6)
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
     Psi = [psi0]
     Energies = [E0]
-    for _ in 1:(n_levels-1)
+    for i in 1:(n_levels-1)
         psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 6)
+        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
         push!(Psi, psi)
         push!(Energies, real(inner(psi',H,psi)))
     end 
     return Energies.-Energies[1], Psi
+end
+
+function get_hamiltonian_array(H::MPO)
+    s = [siteind(H, j) for j in 1:length(H)]
+    # Contract MPO, convert to Array, and reshape to square matrix
+    return reshape(Array(prod(H), s..., s'...), prod(dims(s)), :)
 end
