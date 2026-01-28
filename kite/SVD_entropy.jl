@@ -1,9 +1,9 @@
-include("kite_dmrg.jl")
+include("kite_dmrg_reordered.jl")
 include("../plotting.jl")
 
 
 ## ==== Parameters =====
-DEFAULT_DIMS = (9,16,16,4)# (19, 32, 32, 5)  # Default dimensions for the kite model
+DEFAULT_DIMS = (9,16,16,4) #(19, 32, 32, 5)  # Default dimensions for the kite model
 
 ECs_GHz=0.072472
 EL_GHz=1.269
@@ -15,10 +15,10 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext_list = range(0.0, stop=1.0, length=9)
+phi_ext_list = range(0.0, stop=1.0, length=3)
 
 precision = 1E-8
-nb_states = 5
+nb_states = 4
 
 
 
@@ -51,15 +51,15 @@ for phi_ext in phi_ext_list
         push!(entropies[1][i], vn_entropy(psi, 1)[1])
         push!(entropies[2][i], vn_entropy(psi, 2)[1])
         push!(entropies[3][i], vn_entropy(psi, 3)[1])
-        if phi_ext == 0.5 && i==2
-            S_vec[1][1] = sort(vn_entropy(psi, 1)[2])
-            S_vec[1][2] = sort(vn_entropy(psi, 2)[2])
-            S_vec[1][3] = sort(vn_entropy(psi, 3)[2])
+        if phi_ext == 0.5 && i==1
+            S_vec[1][1] = vn_entropy(psi, 1)[2]
+            S_vec[1][2] = vn_entropy(psi, 2)[2]
+            S_vec[1][3] = vn_entropy(psi, 3)[2]
         end
         if phi_ext == 0.5 && i==4
-            S_vec[2][1] = sort(vn_entropy(psi, 1)[2])
-            S_vec[2][2] = sort(vn_entropy(psi, 2)[2])
-            S_vec[2][3] = sort(vn_entropy(psi, 3)[2])
+            S_vec[2][1] = vn_entropy(psi, 1)[2]
+            S_vec[2][2] = vn_entropy(psi, 2)[2]
+            S_vec[2][3] = vn_entropy(psi, 3)[2]
         end
     end
 
