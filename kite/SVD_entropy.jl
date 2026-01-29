@@ -18,7 +18,7 @@ n_g = 0.5
 phi_ext_list = range(0.0, stop=1.0, length=3)
 
 precision = 1E-8
-nb_states = 4
+nb_states = 2
 
 
 

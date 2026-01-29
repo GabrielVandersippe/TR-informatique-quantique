@@ -1,7 +1,7 @@
 using ITensors, ITensorMPS, LinearAlgebra, HypergeometricFunctions
 
 
-DEFAULT_DIMS = (19, 32, 32, 5)
+DEFAULT_DIMS = (9,16,16,4)# (19, 32, 32, 5)  # Default dimensions for the kite model
 
 ECs_GHz=0.072472
 EL_GHz=1.269
@@ -11,6 +11,11 @@ eps=0.05702
 ECc_GHz=0.003989
 f_r_GHz=4.337
 n_r_zpf=2.0
+
+n_g = 0.5
+phi_ext = 0.5
+
+nb_states = 4
 
 
 # ============================================================
@@ -163,7 +168,7 @@ function fock_basis_phi_operator(d::Int, phi_zpf::Float64)
 
     """
     vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(1:d-1))
+    vals_down = sqrt.(collect(0:d-2))
     return phi_zpf * (diagm(1 => ComplexF64.(vals_up)) + diagm(-1 => ComplexF64.(vals_down)))
 end
 
@@ -176,7 +181,7 @@ function fock_basis_charge_operator(d::Int, phi_zpf::Float64)
 
     """
     vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(1:d-1))
+    vals_down = sqrt.(collect(0:d-2))
     return 1im * (diagm(-1 => ComplexF64.(vals_down)) - diagm(1 => ComplexF64.(vals_up))) / (2 * phi_zpf)
 end
 
@@ -226,8 +231,8 @@ function build_static_operators(
     S2 = fock_basis_sin_operator(dims[3], phi_2_zpf)
 
     #Resonator variable (in fock basis)
-    phi_r_zpf = phi_zpf(EC_vec[4], EL_vec[4])
-    NR = fock_basis_charge_operator(dims[4], phi_r_zpf)
+    phi__r_zpf = phi_zpf(EC_vec[4], EL_vec[4])
+    NR = fock_basis_charge_operator(dims[4], phi__r_zpf)
 
     return N0, C0, S0, N1, C1, S1, N2, C2, S2, NR
 end
@@ -343,6 +348,31 @@ end
 # ============================================================
 
 
+
+
+function compute_variance(psi::MPS, H::MPO)
+    """Compute the variance of the energy for a given MPS psi and Hamiltonian H, defined as:
+    sigma = sqrt(<psi|H^2|psi> - <psi|H|psi>^2)
+    """
+    E = real(inner(psi', H, psi))
+    Hpsi = apply(H, psi)
+    E2 = real(inner(Hpsi, Hpsi))
+    return sqrt(max(E2 - E^2, 0))
+end
+
+mutable struct VarianceObserver <: AbstractObserver
+    variance_list::Vector{Float64}
+    H::MPO
+    VarianceObserver(H::MPO) = new(Float64[], H)
+end
+
+function ITensorMPS.measure!(obs::VarianceObserver; kwargs...)
+    if kwargs[:sweep_is_done]
+        push!(obs.variance_list, compute_variance(kwargs[:psi], obs.H))
+    end
+end
+
+
 # Observer to stop DMRG early if energy converged
 mutable struct EnergyObserver <: AbstractObserver
     energy_tol::Float64
@@ -364,10 +394,13 @@ end
 
 
 # Computing eigenstates with DMRG
-function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
+function eigenstates_hamiltonian(H::MPO, n_levels::Int)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
-# ==== DMRG Parameters ====
-    nsweeps = 60
+
+    sigmas = [Float64[] for _ in 1:n_levels]
+
+    # ==== DMRG Parameters ====
+    nsweeps = 30
     maxdim = [10,10,20,20,40,100,100,100,100,200]
     cutoff = [1E-14]
     noise = [1E-7, 1E-8, 1E-9, 0.0]
@@ -375,20 +408,22 @@ function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
 
     sites = [siteinds(H)[i][2] for i in 1:4]
 
-    obs = EnergyObserver(precision)
-
     # ==== DMRG Computations ====
+    obs = VarianceObserver(H)
     psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
     E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
     Psi = [psi0]
     Energies = [E0]
-    for i in 1:(n_levels-1)
+    sigmas[1] = obs.variance_list
+    for i in 2:(n_levels)
+        obs = VarianceObserver(H)
         psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
         _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
         push!(Psi, psi)
         push!(Energies, real(inner(psi',H,psi)))
+        sigmas[i] = obs.variance_list
     end 
-    return Energies.-Energies[1], Psi
+    return Energies.-Energies[1], Psi, sigmas
 end
 
 function get_hamiltonian_array(H::MPO)
@@ -397,17 +432,12 @@ function get_hamiltonian_array(H::MPO)
     return reshape(Array(prod(H), s..., s'...), prod(dims(s)), :)
 end
 
-using DataFrames
-using CSV
 
-function export_hamiltonian_to_csv(H, filename::String)
-    df = DataFrame(H, :auto)
-    CSV.write(filename, df)
-end
+# Computing the variances
+H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
+_, _, variances = eigenstates_hamiltonian(H, nb_states)
 
-function export_validation_ops(ops_list, names_list)
-    for (op, name) in zip(ops_list, names_list)
-        CSV.write("./kite/test_ops/$(name)_real.csv", DataFrame(real.(op), :auto))
-        CSV.write("./kite/test_ops/$(name)_imag.csv", DataFrame(imag.(op), :auto))
-    end
-end
+
+
+# Plotting the variances
+plot_list(collect(1:30), variances; labels=["State $i" for i in 1:nb_states], xlabel=L"n_\mathrm{sweep}", ylabel="Variance", title=L"\text{Energy Variance vs sweep for First States}")

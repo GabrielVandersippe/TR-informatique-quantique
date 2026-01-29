@@ -24,12 +24,12 @@ nb_states = 4
 
 function compute_variance(psi::MPS, H::MPO)
     """Compute the variance of the energy for a given MPS psi and Hamiltonian H, defined as:
-    sigma = sqrt(<psi|H^2|psi> - <psi|H|psi>^2)
+    sigma = <psi|H^2|psi> - <psi|H|psi>^2
     """
     E = real(inner(psi', H, psi))
     Hpsi = H*psi
     E2 = real(inner(Hpsi, Hpsi))
-    return sqrt(max(E2 - E^2, 0))
+    return E2 - E^2
 end
 
 # Computing the variances
