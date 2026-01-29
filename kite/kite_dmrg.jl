@@ -162,9 +162,8 @@ function fock_basis_phi_operator(d::Int, phi_zpf::Float64)
     <j+1|a_dag|j> = sqrt(j+1)
 
     """
-    vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(1:d-1))
-    return phi_zpf * (diagm(1 => ComplexF64.(vals_up)) + diagm(-1 => ComplexF64.(vals_down)))
+    v = sqrt.(collect(1:d-1))
+    return phi_zpf * (diagm(1 => ComplexF64.(v)) + diagm(-1 => ComplexF64.(v)))
 end
 
 
@@ -175,9 +174,8 @@ function fock_basis_charge_operator(d::Int, phi_zpf::Float64)
     <j+1|a_dag|j> = sqrt(j+1)
 
     """
-    vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(1:d-1))
-    return 1im * (diagm(-1 => ComplexF64.(vals_down)) - diagm(1 => ComplexF64.(vals_up))) / (2 * phi_zpf)
+    v = sqrt.(collect(1:d-1))
+    return 1im * (diagm(-1 => ComplexF64.(v)) - diagm(1 => ComplexF64.(v))) / (2 * phi_zpf)
 end
 
 

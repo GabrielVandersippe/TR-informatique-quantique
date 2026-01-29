@@ -1,4 +1,4 @@
-include("kite_dmrg_reordered.jl")
+include("kite_dmrg.jl")
 include("../plotting.jl")
 
 
@@ -15,10 +15,10 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext_list = range(0.0, stop=1.0, length=3)
+phi_ext_list = range(0.0, stop=1.0, length=9)
 
 precision = 1E-8
-nb_states = 2
+nb_states = 4
 
 
 
