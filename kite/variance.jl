@@ -1,9 +1,9 @@
 include("kite_dmrg.jl")
 include("../plotting.jl")
-
+using CSV, DataFrames
 
 ## ==== Parameters =====
-DEFAULT_DIMS = (9,16,16,4)# (19, 32, 32, 5)  # Default dimensions for the kite model
+DEFAULT_DIMS = (9,16,16,5) #(19, 32, 32, 5)  # Default dimensions for the kite model
 
 ECs_GHz=0.072472
 EL_GHz=1.269
@@ -17,7 +17,7 @@ n_r_zpf=2.0
 n_g = 0.5
 phi_ext_list = range(0.0, stop=1.0, length=9)
 
-precision = 1E-10
+precision = 1E-15
 nb_states = 4
 
 
@@ -29,7 +29,7 @@ function compute_variance(psi::MPS, H::MPO)
     E = real(inner(psi', H, psi))
     Hpsi = H*psi
     E2 = real(inner(Hpsi, Hpsi))
-    return E2 - E^2
+    return abs(E2 - E^2)
 end
 
 # Computing the variances
@@ -50,3 +50,9 @@ end
 
 # Plotting the variances
 plot_list(phi_ext_list, sigmas; labels=["State $i" for i in 1:nb_states], xlabel=L"\varphi_{\mathrm{ext}}", ylabel="Variance", title=L"\text{Energy Variance vs }\varphi_{\mathrm{ext}} \text{ for First States}")
+
+df = DataFrame(phi_ext = collect(phi_ext_list))
+for i in 1:nb_states
+    df[!, "sigma_state_$i"] = sigmas[i]
+end
+CSV.write("kite/variances/all_sigmas.csv", df)

@@ -17,7 +17,7 @@ n_r_zpf=2.0
 n_g = 0.5
 phi_ext_list = range(0.0, stop=1.0, length=9)
 
-precision = 1E-8
+precision = 1E-10
 nb_states = 4
 
 

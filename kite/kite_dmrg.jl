@@ -330,9 +330,13 @@ function create_hamiltonian(
     os += -2 * eps * EJ_GHz * sin(phi_ext/2), S0, 1, C1, 2, C2, 3
     os += 2 * eps * EJ_GHz * sin(phi_ext/2), C0, 1, S1, 2, C2, 3
 
-    return MPO(os, sites)
+    return conj(MPO(os, sites)) # FIXME : the conj is not normal, cf. remark down below
 
 end
+# =========================================
+# FIXME : The hamiltonian is currently the transposed one compared to the JAX code (or the complex conjugate, since it is Hermitian).
+# This is why there is a conj(H) in the following code
+# ========================================= 
 
 
 
@@ -364,10 +368,10 @@ end
 # Computing eigenstates with DMRG
 function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
-# ==== DMRG Parameters ====
-    nsweeps = 60
-    maxdim = [10,10,20,20,40,100,100,100,100,200]
-    cutoff = [1E-14]
+    # ==== DMRG Parameters ====
+    nsweeps = 100
+    maxdim = [10,10,20,20,20,40,40,40,100,100,100,100,200]
+    cutoff = [1E-15]
     noise = [1E-7, 1E-8, 1E-9, 0.0]
     weight = 60
 
