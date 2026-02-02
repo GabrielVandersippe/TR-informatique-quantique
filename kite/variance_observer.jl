@@ -442,7 +442,7 @@ end
 
 
 # Computing the variances
-H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
+H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
 _, _, sigmas = eigenstates_hamiltonian(H, nb_states)
 
 

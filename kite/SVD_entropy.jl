@@ -14,7 +14,7 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext_list = range(0.0, stop=1.0, length=9)
+phi_ext_list = range(0.0, stop=2*pi, length=9)
 
 precision = 1E-10
 nb_states = 4
@@ -42,7 +42,7 @@ S_vec = [[Float64[] for _ in 1:3] for _ in 1:2]
 for phi_ext in phi_ext_list
     println("Computing for phi_ext = $phi_ext")
 
-    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
+    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
     _, states = eigenstates_hamiltonian(H, nb_states, precision)
     
     # Compute variances
@@ -50,12 +50,12 @@ for phi_ext in phi_ext_list
         push!(entropies[1][i], vn_entropy(psi, 1)[1])
         push!(entropies[2][i], vn_entropy(psi, 2)[1])
         push!(entropies[3][i], vn_entropy(psi, 3)[1])
-        if phi_ext == 0.5 && i==1
+        if isapprox(phi_ext, 2*pi) && i==1
             S_vec[1][1] = vn_entropy(psi, 1)[2]
             S_vec[1][2] = vn_entropy(psi, 2)[2]
             S_vec[1][3] = vn_entropy(psi, 3)[2]
         end
-        if phi_ext == 0.5 && i==2
+        if isapprox(phi_ext, pi) && i==1
             S_vec[2][1] = vn_entropy(psi, 1)[2]
             S_vec[2][2] = vn_entropy(psi, 2)[2]
             S_vec[2][3] = vn_entropy(psi, 3)[2]
@@ -75,12 +75,12 @@ Label(fig[1, 2], L"\text{Von Neumann Entropy vs }\varphi_{\mathrm{ext}} \text{ f
       font = :bold,
       halign = :center)
 
-Label(fig[3, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 0.5 \text{ for State 1}", 
+Label(fig[3, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 2\pi \text{ for State 1}", 
       fontsize = 20,
       font = :bold,
       halign = :center)
 
-Label(fig[5, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 0.5 \text{ for State 2}", 
+Label(fig[5, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = \pi \text{ for State 1}", 
       fontsize = 20,
       font = :bold,
       halign = :center)

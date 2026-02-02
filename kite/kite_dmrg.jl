@@ -371,7 +371,7 @@ function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
     # ==== DMRG Parameters ====
     nsweeps = 100
     maxdim = [10,10,20,20,20,40,40,40,100,100,100,100,200]
-    cutoff = [1E-14]
+    cutoff = [1E-15]
     noise = [1E-7, 1E-8, 1E-9, 0.0]
     weight = 60
 

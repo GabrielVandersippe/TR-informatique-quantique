@@ -15,7 +15,7 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext_list = range(0.0, stop=1.0, length=9)
+phi_ext_list = range(0.0, stop=2*pi, length=9)
 
 precision = 1E-15
 nb_states = 4
@@ -38,8 +38,8 @@ sigmas = [Float64[] for _ in 1:nb_states]
 for phi_ext in phi_ext_list
     println("Computing for phi_ext = $phi_ext")
 
-    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
-    energies, states = eigenstates_hamiltonian(H, nb_states, precision)
+    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
+    _, states = eigenstates_hamiltonian(H, nb_states, precision)
     
     # Compute variances
     for (i, psi) in enumerate(states)
@@ -55,4 +55,4 @@ df = DataFrame(phi_ext = collect(phi_ext_list))
 for i in 1:nb_states
     df[!, "sigma_state_$i"] = sigmas[i]
 end
-CSV.write("kite/variances/all_sigmas.csv", df)
+CSV.write("kite/data/all_sigmas.csv", df)

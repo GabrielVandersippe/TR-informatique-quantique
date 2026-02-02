@@ -14,7 +14,7 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext = 0.5
+phi_ext = 2*pi
 weight_list = [5,10,20,50,100,200]
 
 precision = 1E-10
@@ -415,7 +415,7 @@ sigmas = [Float64[] for _ in 1:nb_states]
 for weight in weight_list
     println("Computing for weight = $weight")
 
-    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
+    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
     energies, states = eigenstates_hamiltonian(H, nb_states, weight)
     
     # Compute variances
@@ -445,4 +445,4 @@ end
 axislegend(ax)
 display(fig)
 
-save("kite/plots/variance_vs_weight_logscale_large.png", fig)
+save("kite/plots/variance_vs_weight_logscale_large_phiext_2pi.png", fig)
