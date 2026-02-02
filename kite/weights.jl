@@ -1,7 +1,8 @@
 using ITensors, ITensorMPS, LinearAlgebra, HypergeometricFunctions
+include("../plotting.jl")
 
 
-DEFAULT_DIMS = (19, 32, 32, 5)
+DEFAULT_DIMS = (9,16,16,5) #(19, 32, 32, 5)
 
 ECs_GHz=0.072472
 EL_GHz=1.269
@@ -12,6 +13,12 @@ ECc_GHz=0.003989
 f_r_GHz=4.337
 n_r_zpf=2.0
 
+n_g = 0.5
+phi_ext = 0.5
+weight_list = [5,10,20,50,100,200]
+
+precision = 1E-10
+nb_states = 4
 
 # ============================================================
 # Utils
@@ -366,58 +373,76 @@ end
 
 
 # Computing eigenstates with DMRG
-function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
+function eigenstates_hamiltonian(H::MPO, n_levels::Int, weight)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
     # ==== DMRG Parameters ====
-    nsweeps = 100
+    nsweeps = 20
     maxdim = [10,10,20,20,20,40,40,40,100,100,100,100,200]
-    cutoff = [1E-14]
+    cutoff = [1E-15]
     noise = [1E-7, 1E-8, 1E-9, 0.0]
-    weight = 60
+    weight = weight
 
     sites = [siteinds(H)[i][2] for i in 1:4]
 
-    obs = EnergyObserver(precision)
-
     # ==== DMRG Computations ====
     psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,outputlevel = 1, eigsolve_krylovdim = 10)
     Psi = [psi0]
     Energies = [E0]
     for i in 1:(n_levels-1)
         psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
+        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,outputlevel = 1, eigsolve_krylovdim = 10)
         push!(Psi, psi)
         push!(Energies, real(inner(psi',H,psi)))
     end 
-    return Energies, Psi
+    return Energies.-Energies[1], Psi
 end
 
 
-
-
-# ============================================================
-# Exporting Hamiltonian and operators to CSV
-# ============================================================
-
-
-function get_hamiltonian_array(H::MPO)
-    s = [siteind(H, j) for j in 1:length(H)]
-    # Contract MPO, convert to Array, and reshape to square matrix
-    return reshape(Array(prod(H), s..., s'...), prod(dims(s)), :)
+function compute_variance(psi::MPS, H::MPO)
+    """Compute the variance of the energy for a given MPS psi and Hamiltonian H, defined as:
+    sigma = <psi|H^2|psi> - <psi|H|psi>^2
+    """
+    E = real(inner(psi', H, psi))
+    Hpsi = H*psi
+    E2 = real(inner(Hpsi, Hpsi))
+    return abs(E2 - E^2)
 end
 
-using DataFrames
-using CSV
+# Computing the variances
+sigmas = [Float64[] for _ in 1:nb_states]  
 
-function export_hamiltonian_to_csv(H, filename::String)
-    df = DataFrame(H, :auto)
-    CSV.write(filename, df)
-end
+for weight in weight_list
+    println("Computing for weight = $weight")
 
-function export_validation_ops(ops_list, names_list)
-    for (op, name) in zip(ops_list, names_list)
-        CSV.write("./kite/test_ops/$(name)_real.csv", DataFrame(real.(op), :auto))
-        CSV.write("./kite/test_ops/$(name)_imag.csv", DataFrame(imag.(op), :auto))
+    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
+    energies, states = eigenstates_hamiltonian(H, nb_states, weight)
+    
+    # Compute variances
+    for (i, psi) in enumerate(states)
+        push!(sigmas[i], compute_variance(psi, H))
     end
 end
+
+
+# Plotting the variances
+# plot_list(weight_list, sigmas; labels=["State $i" for i in 1:nb_states], xlabel=L"\text{weight}", ylabel="Variance", title=L"\text{Energy Variance vs Weight for First States (20 sweeps)}", savepath="kite/plots/variance_vs_weight.png")
+
+fig = Figure(size = (800, 600))
+ax = Axis(
+    fig[1, 1], 
+    xlabel=L"\text{weight}", 
+    ylabel=L"\text{Variance}",
+    xscale = log10,
+    yscale = log10, 
+    title=L"\text{Energy Variance vs Weight for First States (20 sweeps)}")
+
+for (i, y) in enumerate(sigmas)
+    label = isempty(["State $i" for i in 1:nb_states]) ? nothing : ["State $i" for i in 1:nb_states][i]
+    lines!(ax, weight_list, y, label=label)
+end
+
+axislegend(ax)
+display(fig)
+
+save("kite/plots/variance_vs_weight_logscale_large.png", fig)

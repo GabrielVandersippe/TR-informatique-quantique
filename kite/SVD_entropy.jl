@@ -1,5 +1,4 @@
 include("kite_dmrg.jl")
-include("../plotting.jl")
 
 
 ## ==== Parameters =====
@@ -56,7 +55,7 @@ for phi_ext in phi_ext_list
             S_vec[1][2] = vn_entropy(psi, 2)[2]
             S_vec[1][3] = vn_entropy(psi, 3)[2]
         end
-        if phi_ext == 0.5 && i==4
+        if phi_ext == 0.5 && i==2
             S_vec[2][1] = vn_entropy(psi, 1)[2]
             S_vec[2][2] = vn_entropy(psi, 2)[2]
             S_vec[2][3] = vn_entropy(psi, 3)[2]
@@ -76,12 +75,12 @@ Label(fig[1, 2], L"\text{Von Neumann Entropy vs }\varphi_{\mathrm{ext}} \text{ f
       font = :bold,
       halign = :center)
 
-Label(fig[3, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 0.5 \text{ for State 2}", 
+Label(fig[3, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 0.5 \text{ for State 1}", 
       fontsize = 20,
       font = :bold,
       halign = :center)
 
-Label(fig[5, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 0.5 \text{ for State 4}", 
+Label(fig[5, 2], L"\text{Singular values at }\varphi_{\mathrm{ext}} = 0.5 \text{ for State 2}", 
       fontsize = 20,
       font = :bold,
       halign = :center)
@@ -104,7 +103,8 @@ for (idx, b) in enumerate(bonds_to_plot)
     ax_bar_1 = Axis(fig[4, idx], 
             yscale = log10,
             ylabel= idx == 1 ? L"\sigma_i" : "",
-            xticks = 1:length(S_vec[1][idx]))
+            xticks = LinearTicks(10)
+    )
     
     barplot!(ax_bar_1, 1:length(S_vec[1][idx]), S_vec[1][idx], 
         color = Pattern('/'), 
@@ -116,7 +116,8 @@ for (idx, b) in enumerate(bonds_to_plot)
     ax_bar_2 = Axis(fig[6, idx], 
             yscale = log10,
             ylabel= idx == 1 ? L"\sigma_i" : "",
-            xticks = 1:length(S_vec[2][idx]))
+            xticks = LinearTicks(10)
+    )
     
     barplot!(ax_bar_2, 1:length(S_vec[2][idx]), S_vec[2][idx], 
         color = Pattern('/'), 
@@ -127,3 +128,4 @@ for (idx, b) in enumerate(bonds_to_plot)
 end
 
 display(fig)
+save("kite/plots/von_Neumann_entropy_and_singular_values.png", fig)

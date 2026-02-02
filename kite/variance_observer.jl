@@ -1,7 +1,7 @@
 using ITensors, ITensorMPS, LinearAlgebra, HypergeometricFunctions
+include("../plotting.jl")
 
-
-DEFAULT_DIMS = (9,16,16,4)# (19, 32, 32, 5)  # Default dimensions for the kite model
+DEFAULT_DIMS = (9,16,16,5) #(19, 32, 32, 5)
 
 ECs_GHz=0.072472
 EL_GHz=1.269
@@ -15,8 +15,8 @@ n_r_zpf=2.0
 n_g = 0.5
 phi_ext = 0.5
 
+precision = 1E-10
 nb_states = 4
-
 
 # ============================================================
 # Utils
@@ -167,9 +167,8 @@ function fock_basis_phi_operator(d::Int, phi_zpf::Float64)
     <j+1|a_dag|j> = sqrt(j+1)
 
     """
-    vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(0:d-2))
-    return phi_zpf * (diagm(1 => ComplexF64.(vals_up)) + diagm(-1 => ComplexF64.(vals_down)))
+    v = sqrt.(collect(1:d-1))
+    return phi_zpf * (diagm(1 => ComplexF64.(v)) + diagm(-1 => ComplexF64.(v)))
 end
 
 
@@ -180,9 +179,8 @@ function fock_basis_charge_operator(d::Int, phi_zpf::Float64)
     <j+1|a_dag|j> = sqrt(j+1)
 
     """
-    vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(0:d-2))
-    return 1im * (diagm(-1 => ComplexF64.(vals_down)) - diagm(1 => ComplexF64.(vals_up))) / (2 * phi_zpf)
+    v = sqrt.(collect(1:d-1))
+    return 1im * (diagm(-1 => ComplexF64.(v)) - diagm(1 => ComplexF64.(v))) / (2 * phi_zpf)
 end
 
 
@@ -231,8 +229,8 @@ function build_static_operators(
     S2 = fock_basis_sin_operator(dims[3], phi_2_zpf)
 
     #Resonator variable (in fock basis)
-    phi__r_zpf = phi_zpf(EC_vec[4], EL_vec[4])
-    NR = fock_basis_charge_operator(dims[4], phi__r_zpf)
+    phi_r_zpf = phi_zpf(EC_vec[4], EL_vec[4])
+    NR = fock_basis_charge_operator(dims[4], phi_r_zpf)
 
     return N0, C0, S0, N1, C1, S1, N2, C2, S2, NR
 end
@@ -337,40 +335,19 @@ function create_hamiltonian(
     os += -2 * eps * EJ_GHz * sin(phi_ext/2), S0, 1, C1, 2, C2, 3
     os += 2 * eps * EJ_GHz * sin(phi_ext/2), C0, 1, S1, 2, C2, 3
 
-    return MPO(os, sites)
+    return conj(MPO(os, sites)) # FIXME : the conj is not normal, cf. remark down below
 
 end
+# =========================================
+# FIXME : The hamiltonian is currently the transposed one compared to the JAX code (or the complex conjugate, since it is Hermitian).
+# This is why there is a conj(H) in the following code
+# ========================================= 
 
 
 
 # ============================================================
 # Computing the states
 # ============================================================
-
-
-
-
-function compute_variance(psi::MPS, H::MPO)
-    """Compute the variance of the energy for a given MPS psi and Hamiltonian H, defined as:
-    sigma = sqrt(<psi|H^2|psi> - <psi|H|psi>^2)
-    """
-    E = real(inner(psi', H, psi))
-    Hpsi = apply(H, psi)
-    E2 = real(inner(Hpsi, Hpsi))
-    return sqrt(max(E2 - E^2, 0))
-end
-
-mutable struct VarianceObserver <: AbstractObserver
-    variance_list::Vector{Float64}
-    H::MPO
-    VarianceObserver(H::MPO) = new(Float64[], H)
-end
-
-function ITensorMPS.measure!(obs::VarianceObserver; kwargs...)
-    if kwargs[:sweep_is_done]
-        push!(obs.variance_list, compute_variance(kwargs[:psi], obs.H))
-    end
-end
 
 
 # Observer to stop DMRG early if energy converged
@@ -393,6 +370,37 @@ function ITensorMPS.checkdone!(obs::EnergyObserver; kwargs...)
 end
 
 
+
+# ============================================================
+# Computing the states
+# ============================================================
+
+
+
+
+function compute_variance(psi::MPS, H::MPO)
+    """Compute the variance of the energy for a given MPS psi and Hamiltonian H, defined as:
+    sigma = <psi|H^2|psi> - <psi|H|psi>^2
+    """
+    E = real(inner(psi', H, psi))
+    Hpsi = H*psi
+    E2 = real(inner(Hpsi, Hpsi))
+    return abs(E2 - E^2)
+end
+
+mutable struct VarianceObserver <: AbstractObserver
+    variance_list::Vector{Float64}
+    H::MPO
+    VarianceObserver(H::MPO) = new(Float64[], H)
+end
+
+function ITensorMPS.measure!(obs::VarianceObserver; kwargs...)
+    if kwargs[:sweep_is_done]
+        push!(obs.variance_list, compute_variance(kwargs[:psi], obs.H))
+    end
+end
+
+
 # Computing eigenstates with DMRG
 function eigenstates_hamiltonian(H::MPO, n_levels::Int)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
@@ -400,18 +408,18 @@ function eigenstates_hamiltonian(H::MPO, n_levels::Int)
     sigmas = [Float64[] for _ in 1:n_levels]
 
     # ==== DMRG Parameters ====
-    nsweeps = 30
+    nsweeps = 15
     maxdim = [10,10,20,20,40,100,100,100,100,200]
     cutoff = [1E-14]
     noise = [1E-7, 1E-8, 1E-9, 0.0]
-    weight = 60
+    weight = 20
 
     sites = [siteinds(H)[i][2] for i in 1:4]
 
     # ==== DMRG Computations ====
     obs = VarianceObserver(H)
     psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
     Psi = [psi0]
     Energies = [E0]
     sigmas[1] = obs.variance_list
@@ -435,9 +443,27 @@ end
 
 # Computing the variances
 H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, EL_GHz, ECJ_GHz, EJ_GHz, eps, ECc_GHz, f_r_GHz, n_r_zpf, n_g, phi_ext)
-_, _, variances = eigenstates_hamiltonian(H, nb_states)
+_, _, sigmas = eigenstates_hamiltonian(H, nb_states)
 
 
 
 # Plotting the variances
-plot_list(collect(1:30), variances; labels=["State $i" for i in 1:nb_states], xlabel=L"n_\mathrm{sweep}", ylabel="Variance", title=L"\text{Energy Variance vs sweep for First States}")
+# plot_list(collect(1:30), sigmas; labels=["State $i" for i in 1:nb_states], xlabel=L"n_\mathrm{sweep}", ylabel="Variance", title=L"\text{Energy Variance vs sweep for First States}")
+
+fig = Figure(size = (800, 600))
+ax = Axis(
+    fig[1, 1], 
+    xlabel=L"n_\mathrm{sweep}", 
+    ylabel=L"\text{Variance}",
+    yscale = log10, 
+    title=L"\text{Energy Variance vs Number of Sweeps for First States}")
+
+for (i, y) in enumerate(sigmas)
+    label = isempty(["State $i" for i in 1:nb_states]) ? nothing : ["State $i" for i in 1:nb_states][i]
+    lines!(ax, collect(1:15), y, label=label)
+end
+
+axislegend(ax)
+display(fig)
+
+save("kite/plots/variance_vs_nsweep_logscale.png", fig)
