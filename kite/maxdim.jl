@@ -1,6 +1,7 @@
 using ITensors, ITensorMPS, LinearAlgebra, HypergeometricFunctions
 include("../plotting.jl")
 
+
 DEFAULT_DIMS = (9,16,16,5) #(19, 32, 32, 5)
 
 ECs_GHz=0.072472
@@ -13,7 +14,8 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext = 0.5
+phi_ext = 2*pi
+maxdim_list = [10,20,35,50,65,100]
 
 precision = 1E-10
 nb_states = 4
@@ -350,6 +352,51 @@ end
 # ============================================================
 
 
+# Observer to stop DMRG early if energy converged
+mutable struct EnergyObserver <: AbstractObserver
+    energy_tol::Float64
+    last_energy::Float64
+
+    EnergyObserver(energy_tol::Float64=0.0) = new(energy_tol, 1000.0)
+end
+
+#Overloading the checkdone! method
+function ITensorMPS.checkdone!(obs::EnergyObserver; kwargs...)
+    energy=kwargs[:energy]
+    if abs(energy - obs.last_energy) < obs.energy_tol
+        return true
+    else
+        obs.last_energy = energy
+        return false
+    end
+end
+
+
+# Computing eigenstates with DMRG
+function eigenstates_hamiltonian(H::MPO, n_levels::Int, maxdim::Int)
+    """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
+    # ==== DMRG Parameters ====
+    nsweeps = 20
+    maxdim = maxdim
+    cutoff = [1E-15]
+    noise = [1E-7, 1E-8, 1E-9, 0.0]
+    weight = 10
+
+    sites = [siteinds(H)[i][2] for i in 1:4]
+
+    # ==== DMRG Computations ====
+    psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,outputlevel = 1, eigsolve_krylovdim = 10)
+    Psi = [psi0]
+    Energies = [E0]
+    for i in 1:(n_levels-1)
+        psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
+        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,outputlevel = 1, eigsolve_krylovdim = 10)
+        push!(Psi, psi)
+        push!(Energies, real(inner(psi',H,psi)))
+    end 
+    return Energies.-Energies[1], Psi
+end
 
 
 function compute_variance(psi::MPS, H::MPO)
@@ -362,100 +409,39 @@ function compute_variance(psi::MPS, H::MPO)
     return abs(E2 - E^2)
 end
 
-mutable struct VarianceObserver <: AbstractObserver
-    variance_list::Vector{Float64}
-    H::MPO
-    VarianceObserver(H::MPO) = new(Float64[], H)
-end
+# Computing the variances
+sigmas = [Float64[] for _ in 1:nb_states]  
 
-function ITensorMPS.measure!(obs::VarianceObserver; kwargs...)
-    if kwargs[:sweep_is_done]
-        push!(obs.variance_list, compute_variance(kwargs[:psi], obs.H))
+for maxdim in maxdim_list
+    println("Computing for maxdim = $maxdim")
+
+    H = create_hamiltonian(DEFAULT_DIMS, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
+    energies, states = eigenstates_hamiltonian(H, nb_states, maxdim)
+    
+    # Compute variances
+    for (i, psi) in enumerate(states)
+        push!(sigmas[i], compute_variance(psi, H))
     end
 end
 
 
-# Computing eigenstates with DMRG
-function eigenstates_hamiltonian(H::MPO, n_levels::Int)
-    """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
-
-    sigmas = [Float64[] for _ in 1:n_levels]
-
-    # ==== DMRG Parameters ====
-    nsweeps = 15
-    maxdim = [10,10,20,20,40,100,100,100,100,200]
-    cutoff = [1E-14]
-    noise = [1E-7, 1E-8, 1E-9, 0.0]
-    weight = 20
-
-    sites = [siteinds(H)[i][2] for i in 1:4]
-
-    # ==== DMRG Computations ====
-    obs = VarianceObserver(H)
-    psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
-    Psi = [psi0]
-    Energies = [E0]
-    sigmas[1] = obs.variance_list
-    for i in 2:(n_levels)
-        obs = VarianceObserver(H)
-        psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
-        push!(Psi, psi)
-        push!(Energies, real(inner(psi',H,psi)))
-        sigmas[i] = obs.variance_list
-    end 
-    return Energies.-Energies[1], Psi, sigmas
-end
-
-function get_hamiltonian_array(H::MPO)
-    s = [siteind(H, j) for j in 1:length(H)]
-    # Contract MPO, convert to Array, and reshape to square matrix
-    return reshape(Array(prod(H), s..., s'...), prod(dims(s)), :)
-end
-
-
-# Computing the variances
-low_dim = (9,16,16,5)
-H_low_dim = create_hamiltonian(low_dim, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
-_, _, sigmas_low_dim = eigenstates_hamiltonian(H_low_dim, nb_states)
-
-high_dim = (19,32,32,5)
-H_high_dim = create_hamiltonian(high_dim, ECs_GHz, ECJ_GHz, ECc_GHz, f_r_GHz, n_r_zpf, eps, EL_GHz, EJ_GHz, n_g, phi_ext)
-_, _, sigmas_high_dim = eigenstates_hamiltonian(H_high_dim, nb_states)
-
-
+# Plotting the variances
+# plot_list(weight_list, sigmas; labels=["State $i" for i in 1:nb_states], xlabel=L"\text{weight}", ylabel="Variance", title=L"\text{Energy Variance vs Weight for First States (20 sweeps)}", savepath="kite/plots/variance_vs_weight.png")
 
 fig = Figure(size = (800, 600))
 ax = Axis(
     fig[1, 1], 
-    xlabel=L"n_\mathrm{sweep}", 
+    xlabel=L"\text{maxdim}", 
     ylabel=L"\text{Variance}",
+    xscale = log10,
     yscale = log10, 
-    title=L"\text{Energy Variance: High Dim vs Low Dim}")
-
-colors = Makie.wong_colors()
-
-for i in 1:nb_states
-    state_color = colors[mod1(i, length(colors))]
-
-    lines!(ax, 1:15, sigmas_high_dim[i], 
-           color = state_color, 
-           linestyle = :solid, 
-           label = "State $i")
-    lines!(ax, 1:15, sigmas_low_dim[i], 
-           color = state_color, 
-           linestyle = :dash)
+    title=L"\text{Energy Variance vs Maxdim for First States (20 sweeps)}")
+for (i, y) in enumerate(sigmas)
+    label = isempty(["State $i" for i in 1:nb_states]) ? nothing : ["State $i" for i in 1:nb_states][i]
+    lines!(ax, maxdim_list, y, label=label)
 end
 
-axislegend(ax, position = :rt, nbanks = 2)
-
-line_elems = [LineElement(color = :black, linestyle = :solid),
-              LineElement(color = :black, linestyle = :dash)]
-line_labels = ["High Dim", "Low Dim"]
-
-Legend(fig[1, 2], line_elems, line_labels, "Dimension")
-
+axislegend(ax)
 display(fig)
 
-save("kite/plots/variance_vs_nsweep_low_and_high.png", fig)
+save("kite/plots/variance_vs_maxdim_logscale_phiext_2pi.png", fig)
