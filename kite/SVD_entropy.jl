@@ -1,8 +1,9 @@
-include("kite_dmrg.jl")
+include("kite_dmrg_reordered.jl")
+using CairoMakie
 
 
 ## ==== Parameters =====
-DEFAULT_DIMS = (9,16,16,4) #(19, 32, 32, 5)  # Default dimensions for the kite model
+DEFAULT_DIMS = (9,16,16,5) #(19, 32, 32, 5)  # Default dimensions for the kite model
 
 ECs_GHz=0.072472
 EL_GHz=1.269
@@ -14,9 +15,9 @@ f_r_GHz=4.337
 n_r_zpf=2.0
 
 n_g = 0.5
-phi_ext_list = range(0.0, stop=2*pi, length=9)
+phi_ext_list = [0.0, pi/4, pi/2, 3pi/4, 4pi/5, 5pi/6, pi, 7pi/6, 6pi/5, 5pi/4, 3pi/2, 7pi/4, 2pi]
 
-precision = 1E-10
+precision = 1E-13
 nb_states = 4
 
 
@@ -103,7 +104,8 @@ for (idx, b) in enumerate(bonds_to_plot)
     ax_bar_1 = Axis(fig[4, idx], 
             yscale = log10,
             ylabel= idx == 1 ? L"\sigma_i" : "",
-            xticks = LinearTicks(10)
+            ylabelsize = 50,
+            xticks = idx==3 ? LinearTicks(5) : LinearTicks(10)
     )
     
     barplot!(ax_bar_1, 1:length(S_vec[1][idx]), S_vec[1][idx], 
@@ -116,7 +118,8 @@ for (idx, b) in enumerate(bonds_to_plot)
     ax_bar_2 = Axis(fig[6, idx], 
             yscale = log10,
             ylabel= idx == 1 ? L"\sigma_i" : "",
-            xticks = LinearTicks(10)
+            ylabelsize = 50,
+            xticks = idx==3 ? LinearTicks(5) : LinearTicks(10)
     )
     
     barplot!(ax_bar_2, 1:length(S_vec[2][idx]), S_vec[2][idx], 

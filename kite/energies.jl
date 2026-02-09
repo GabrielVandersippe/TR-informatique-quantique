@@ -1,4 +1,4 @@
-include("kite_dmrg.jl")
+include("kite_dmrg_reordered.jl")
 include("../plotting.jl")
 
 DEFAULT_DIMS = (9,16,16,5) #(19, 32, 32, 5)
@@ -40,4 +40,4 @@ df = DataFrame(phi_ext = collect(phi_ext_list))
 for i in 1:nb_states
     df[!, "energy_state_$i"] = energies_list[i]
 end
-CSV.write("kite/data/all_energies.csv", df)
+CSV.write("kite/data/all_energies_reordered.csv", df)

@@ -162,9 +162,8 @@ function fock_basis_phi_operator(d::Int, phi_zpf::Float64)
     <j+1|a_dag|j> = sqrt(j+1)
 
     """
-    vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(0:d-2))
-    return phi_zpf * (diagm(1 => ComplexF64.(vals_up)) + diagm(-1 => ComplexF64.(vals_down)))
+    v = sqrt.(collect(1:d-1))
+    return phi_zpf * (diagm(1 => ComplexF64.(v)) + diagm(-1 => ComplexF64.(v)))
 end
 
 
@@ -175,9 +174,8 @@ function fock_basis_charge_operator(d::Int, phi_zpf::Float64)
     <j+1|a_dag|j> = sqrt(j+1)
 
     """
-    vals_up = sqrt.(collect(1:d-1))
-    vals_down = sqrt.(collect(0:d-2))
-    return 1im * (diagm(-1 => ComplexF64.(vals_down)) - diagm(1 => ComplexF64.(vals_up))) / (2 * phi_zpf)
+    v = sqrt.(collect(1:d-1))
+    return 1im * (diagm(-1 => ComplexF64.(v)) - diagm(1 => ComplexF64.(v))) / (2 * phi_zpf)
 end
 
 
@@ -226,8 +224,8 @@ function build_static_operators(
     S2 = fock_basis_sin_operator(dims[3], phi_2_zpf)
 
     #Resonator variable (in fock basis)
-    phi__r_zpf = phi_zpf(EC_vec[4], EL_vec[4])
-    NR = fock_basis_charge_operator(dims[4], phi__r_zpf)
+    phi_r_zpf = phi_zpf(EC_vec[4], EL_vec[4])
+    NR = fock_basis_charge_operator(dims[4], phi_r_zpf)
 
     return N0, C0, S0, N1, C1, S1, N2, C2, S2, NR
 end
@@ -251,11 +249,10 @@ function create_hamiltonian(
 
 
     # === Initializing the sites ===
-    SiteR = siteind("Boson", 1, dim=dims[4]) #phi_r
     Site0 = siteind("Boson", 2, dim=dims[1]) #phi
     Site1 = siteind("Boson", 3, dim=dims[2]) #phi_sum
     Site2 = siteind("Boson", 4, dim=dims[3]) #phi_diff
-
+    SiteR = siteind("Boson", 1, dim=dims[4]) #phi_r
 
     sites = [SiteR, Site0, Site1, Site2]
     os = OpSum()
@@ -306,7 +303,7 @@ function create_hamiltonian(
     #  N_i N_j terms 
     os += 8*EC_mat[1,2], N0, 2, N1, 3
     os += 8*EC_mat[2,3], N1, 3, N2, 4
-    #os += 8*EC_mat[1,3], N0, 2, N2, 4
+    #os += 8*EC_mat[1,3], N0, 2, N2, 4  
 
     # ng coupling to qubit 
     os += -8 * EC_mat[1,1]*ng, N0, 2
@@ -333,9 +330,13 @@ function create_hamiltonian(
     os += -2 * eps * EJ_GHz * sin(phi_ext/2), S0, 2, C1, 3, C2, 4
     os += 2 * eps * EJ_GHz * sin(phi_ext/2), C0, 2, S1, 3, C2, 4
 
-    return MPO(os, sites)
+    return conj(MPO(os, sites)) # FIXME : the conj is not normal, cf. remark down below
 
 end
+# =========================================
+# FIXME : The hamiltonian is currently the transposed one compared to the JAX code (or the complex conjugate, since it is Hermitian).
+# This is why there is a conj(H) in the following code
+# ========================================= 
 
 
 
@@ -367,10 +368,10 @@ end
 # Computing eigenstates with DMRG
 function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
     """Compute the first n_levels eigenvalues and eigenvectors of the Hamiltonian H given as MPO"""
-# ==== DMRG Parameters ====
-    nsweeps = 60
-    maxdim = [10,10,20,20,40,100,100,100,100, 200]
-    cutoff = [1E-14]
+    # ==== DMRG Parameters ====
+    nsweeps = 100
+    maxdim = [10,20,30,40,50,100]
+    cutoff = [0.0]
     noise = [1E-7, 1E-8, 1E-9, 0.0]
     weight = 60
 
@@ -380,20 +381,43 @@ function eigenstates_hamiltonian(H::MPO, n_levels::Int, precision::Float64=1E-6)
 
     # ==== DMRG Computations ====
     psi0_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,observer=obs,outputlevel = 2, eigsolve_krylovdim = 15)
+    E0,psi0 = dmrg(H,psi0_init;nsweeps,maxdim,cutoff,noise,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
     Psi = [psi0]
     Energies = [E0]
     for i in 1:(n_levels-1)
         psi_init = random_mps(sites;linkdims=10) #TODO : improve initial guess
-        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 2, eigsolve_krylovdim = 15)
+        _,psi = dmrg(H, Psi, psi_init;nsweeps,maxdim,cutoff,noise,weight,observer=obs,outputlevel = 1, eigsolve_krylovdim = 10)
         push!(Psi, psi)
         push!(Energies, real(inner(psi',H,psi)))
     end 
-    return Energies.-Energies[1], Psi
+    return Energies, Psi
 end
+
+
+
+
+# ============================================================
+# Exporting Hamiltonian and operators to CSV
+# ============================================================
+
 
 function get_hamiltonian_array(H::MPO)
     s = [siteind(H, j) for j in 1:length(H)]
     # Contract MPO, convert to Array, and reshape to square matrix
     return reshape(Array(prod(H), s..., s'...), prod(dims(s)), :)
+end
+
+using DataFrames
+using CSV
+
+function export_hamiltonian_to_csv(H, filename::String)
+    df = DataFrame(H, :auto)
+    CSV.write(filename, df)
+end
+
+function export_validation_ops(ops_list, names_list)
+    for (op, name) in zip(ops_list, names_list)
+        CSV.write("./kite/test_ops/$(name)_real.csv", DataFrame(real.(op), :auto))
+        CSV.write("./kite/test_ops/$(name)_imag.csv", DataFrame(imag.(op), :auto))
+    end
 end
