@@ -17,6 +17,7 @@ n_r_zpf=2.0
 # Utils
 # ============================================================
 
+# Used to compute the cosine and sine operators in the fock basis using the Glauber-Cahill formula for displacement operators
 function genlaguerre(n::Int, a::Int, x::Float64)
     """Generalized Laguerre polynomial L_n^a(x)"""
     return binomial(n + a, n) * pFq((-n,), (a + 1,), x)
@@ -72,6 +73,7 @@ function phi_zpf(EC_GHz::Float64, EL_GHz::Float64)
 end
 
 
+# The EC Matrix of the coupled system
 function compute_EC_matrix(
     ECs_GHz::Float64, 
     ECJ_GHz::Float64, 
@@ -101,7 +103,7 @@ end
 
 
 # ============================================================
-# Matrices in charge basis #XXX Right now these are full matrices. Try later with Diagonal/ Tridiagonal for faster arithmetics ?
+# Matrices in charge basis 
 # ============================================================
 
 function charge_basis_charge_operator(d::Int)
@@ -134,10 +136,9 @@ end
 
 
 # ============================================================
-# Matrices in fock basis #XXX Right now these are full matrices. Try later with Diagonal/ Tridiagonal for faster arithmetics
+# Matrices in fock basis
 # ============================================================
 
-# XXX Perhaps it could work with just I and take up less space
 function fock_basis_identity(d::Int)
     return diagm(ones(ComplexF64, d))
 end

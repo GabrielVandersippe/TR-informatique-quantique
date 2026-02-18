@@ -67,6 +67,35 @@ for phi_ext in phi_ext_list
 end
 
 
+# ===== Saving the Entropy Data to CSV =====
+using DataFrames, CSV
+
+data_dict = Dict{String, Vector{Float64}}("phi_ext" => phi_ext_list)
+
+for b in 1:3                # Loop through bonds
+    for s in 1:nb_states     # Loop through states
+        column_name = "Bond$(b)_State$(s)"
+        data_dict[column_name] = entropies[b][s]
+    end
+end
+
+# Convert to DataFrame
+df_entropies = DataFrame(data_dict)
+
+# Save to CSV
+CSV.write("kite/data/entropies_results.csv", df_entropies)
+
+println("Entropy data saved to kite/data/entropies_results.csv")
+
+
+
+
+
+df = CSV.read("kite/data/entropies_results.csv", DataFrame)
+
+
+
+
 # ====== Plotting the Entropies ======
 fig = Figure(size = (1200, 1200)) 
 bonds_to_plot = [1, 2, 3]
@@ -94,7 +123,8 @@ for (idx, b) in enumerate(bonds_to_plot)
               title="Bond $b")
 
     for s in 1:nb_states
-        lines!(ax, phi_ext_list, entropies[b][s], label="State $s")
+        column_name = "Bond$(b)_State$(s)"
+        lines!(ax, df.phi_ext, df[!, column_name], label="State $s")
     end
     if idx == 3
         axislegend(ax, position = :rt)
